@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from logging import getLogger
 from pathlib import Path
 
@@ -33,13 +34,20 @@ def _process_one(
         hop_length=int(sr * hop_seconds),
     )
     output_dir.mkdir(parents=True, exist_ok=True)
+    dur_t_sum = 0.0
     for start, end in tqdm(intervals, desc=f"Writing {input_path}"):
         audio_cut = audio[start:end]
-        sf.write(
-            (output_dir / f"{input_path.stem}_{start / sr:.3f}_{end / sr:.3f}.wav"),
-            audio_cut,
-            sr,
-        )
+        start_t = float(start) / sr
+        end_t = float(end) / sr
+        dur_t = end_t - start_t
+        if 5.0 <= dur_t and dur_t <= 15.0:
+            sf.write(
+                (output_dir / f"{input_path.stem}_{start_t:.3f}_{end_t:.3f}.wav"),
+                audio_cut,
+                sr,
+            )
+            dur_t_sum += dur_t
+    return dur_t_sum
 
 
 def preprocess_split(
@@ -56,8 +64,9 @@ def preprocess_split(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     input_paths = list(input_dir.rglob("*.*"))
+    dur_t_sums = []
     with tqdm_joblib(desc="Splitting", total=len(input_paths)):
-        Parallel(n_jobs=n_jobs)(
+        dur_t_sums = Parallel(n_jobs=n_jobs)(
             delayed(_process_one)(
                 input_path,
                 output_dir / input_path.relative_to(input_dir).parent,
@@ -68,3 +77,4 @@ def preprocess_split(
             )
             for input_path in input_paths
         )
+    LOG.info(f"total valid duration (in seconds): {math.fsum(dur_t_sums):.3f}")
