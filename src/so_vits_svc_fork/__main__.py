@@ -131,6 +131,15 @@ def train(
 
 
 @cli.command()
+def gui():
+    """Opens GUI
+    for conversion and realtime inference"""
+    from .gui import main
+
+    main()
+
+
+@cli.command()
 @click.argument(
     "input-path",
     type=click.Path(exists=True),
@@ -537,7 +546,7 @@ from so_vits_svc_fork.preprocessing.preprocess_flist_config import CONFIG_TEMPLA
     "-t",
     "--config-type",
     type=click.Choice([x.stem for x in CONFIG_TEMPLATE_DIR.rglob("*.json")]),
-    default="so-vits-svc-4.0v1-legacy",
+    default="so-vits-svc-4.0v1",
     help="config type",
 )
 def pre_config(
@@ -709,6 +718,13 @@ def pre_sd(
     default=-1,
     help="number of jobs (optimal value may depend on your RAM capacity and audio duration per file)",
 )
+@click.option(
+    "-l",
+    "--max-length",
+    type=float,
+    default=10,
+    help="max length of each split in seconds",
+)
 @click.option("-d", "--top-db", type=float, default=30, help="top db")
 @click.option("-f", "--frame-seconds", type=float, default=1, help="frame seconds")
 @click.option(
@@ -718,6 +734,7 @@ def pre_sd(
 def pre_split(
     input_dir: Path | str,
     output_dir: Path | str,
+    max_length: float,
     top_db: int,
     frame_seconds: float,
     hop_seconds: float,
@@ -730,6 +747,7 @@ def pre_split(
     preprocess_split(
         input_dir=input_dir,
         output_dir=output_dir,
+        max_length=max_length,
         top_db=top_db,
         frame_seconds=frame_seconds,
         hop_seconds=hop_seconds,
@@ -866,8 +884,19 @@ def onnx(
 @click.option(
     "-m/-nm", "--minibatch/--no-minibatch", default=True, help="use minibatch k-means"
 )
+@click.option(
+    "-b", "--batch-size", type=int, default=4096, help="batch size for minibatch kmeans"
+)
+@click.option(
+    "-p/-np", "--partial-fit", default=False, help="use partial fit (only use with -m)"
+)
 def train_cluster(
-    input_dir: Path, output_path: Path, n_clusters: int, minibatch: bool
+    input_dir: Path,
+    output_path: Path,
+    n_clusters: int,
+    minibatch: bool,
+    batch_size: int,
+    partial_fit: bool,
 ) -> None:
     """Train k-means clustering"""
     from .cluster.train_cluster import main
@@ -878,6 +907,8 @@ def train_cluster(
         n_clusters=n_clusters,
         verbose=True,
         use_minibatch=minibatch,
+        batch_size=batch_size,
+        partial_fit=partial_fit,
     )
 
 
