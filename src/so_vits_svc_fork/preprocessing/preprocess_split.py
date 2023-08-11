@@ -14,26 +14,39 @@ from tqdm_joblib import tqdm_joblib
 LOG = getLogger(__name__)
 
 class AudioSegment:
-    def __init__(self, start: numpy.int64, end: numpy.int64, sample_rate: int):
-        self.start = start
-        self.end = end
-        self.sample_rate = sample_rate
+    def __init__(self,
+                 start: numpy.int64 = None,
+                 end: numpy.int64 = None,
+                 sample_rate: int = None,
+    ):
+        if start is None or end is None or sample_rate is None:
+            self._segments = []
+            self.sample_rate = 0
+            self.duration = float(0)
+        else:
+            self._segments = [(start, end)]
+            self.sample_rate = sample_rate
+            self.duration = float(end - start) / sample_rate
 
     def __add__(self, other):
-        return AudioSegment(min([self.start, other.start]),
-                            max([self.end, other.end]),
-                            self.sample_rate)
-
-    def len(self):
-        return float(self.end - self.start) / self.sample_rate
+        new_seg = AudioSegment()
+        new_seg._segments = self._segments + other._segments
+        new_seg.sample_rate = max([self.sample_rate, other.sample_rate])
+        new_seg.duration = self.duration + other.duration
+        return new_seg
 
     def save(self, audio: numpy.ndarray, output_dir: Path, file_prefix: str):
-        audio_seg = audio[self.start:self.end]
-        start_t = float(self.start) / self.sample_rate
-        end_t = float(self.end) / self.sample_rate
-        file_path = output_dir / f"{file_prefix}_{start_t:.3f}_{end_t:.3f}.wav"
-        sf.write(file_path, audio_seg, self.sample_rate)
+        if len(self._segments) == 0:
+            LOG.warning("Empty segments are ignored to save")
+            return
+        seg = numpy.concatenate([audio[start:end] for start, end in self._segments])
+        file_path = output_dir / f"{file_prefix}_{self.start():.3f}_{self.duration:.3f}.wav"
+        sf.write(file_path, seg, self.sample_rate)
 
+    def start(self):
+        if len(self._segments) == 0:
+            return float(-1)
+        return float(self._segments[0][0]) / self.sample_rate
 
 def _process_one_ori(
     input_path: Path,
@@ -95,20 +108,22 @@ def _process_one(
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     dur_t_sum = 0.0
-    composed_audio_seg = AudioSegment(start=numpy.iinfo(numpy.int64).max,
-                                      end=numpy.iinfo(numpy.int64).min,
-                                      sample_rate=sr)
+    composed_audio_seg = AudioSegment()
     for start, end in tqdm(intervals, desc=f"Writing {input_path}"):
         audio_seg = AudioSegment(start, end, sr)
         new_composed_audio_seg = composed_audio_seg + audio_seg
         # the 5s - 15s slice is suggested by:
         # https://github.com/svc-develop-team/so-vits-svc#0-slice-audio
-        if new_composed_audio_seg.len() <= 15.0:
+        if new_composed_audio_seg.duration <= 15.0:
             composed_audio_seg = new_composed_audio_seg
         else:
-            if 5.0 <= composed_audio_seg.len() and composed_audio_seg.len() <= 15.0:
+            if 5.0 <= composed_audio_seg.duration and composed_audio_seg.duration <= 15.0:
                 composed_audio_seg.save(audio, output_dir, input_path.stem)
-                dur_t_sum += composed_audio_seg.len()
+                dur_t_sum += composed_audio_seg.duration
+            else:
+                LOG.info('drop seg,'
+                         f' start {composed_audio_seg.start()},'
+                         f' duration {composed_audio_seg.duration}')
             composed_audio_seg = audio_seg
     return dur_t_sum
 
